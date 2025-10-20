@@ -1,22 +1,25 @@
 <?php
-
-//include config ตรงนี้นะจ๊ะ 
-// config.php
-$db_host = 'localhost';
-$db_user = 's67160240';
-$db_pass = 'd6kXZFSz'; 
-$db_name = 's6716024';
-
-$mysqli = new mysqli($db_host, $db_user, $db_pass, $db_name);
-if ($mysqli->connect_errno) {
-  die("Connection failed: " . $mysqli->connect_error);
-}
-
-function e($v) { return htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8'); }
-// เปิด session เพื่อใช้ CSRF token และ flash message
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 session_start();
 
-// สร้าง CSRF token ครั้งแรก
+// ===== Database Config =====
+const DB_HOST = 'localhost';
+const DB_USER = 's67160240';
+const DB_PASS = 'd6kXZFSz';
+const DB_NAME = 's67160240';
+
+// ===== Connect Database =====
+$mysqli = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+if ($mysqli->connect_errno) {
+  die("เชื่อมต่อฐานข้อมูลล้มเหลว: " . $mysqli->connect_error);
+}
+$mysqli->set_charset("utf8mb4");
+
+// ===== Helper Function =====
+function e($v) { return htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8'); }
+
+// ===== CSRF Token =====
 if (empty($_SESSION['csrf_token'])) {
   $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
@@ -24,18 +27,9 @@ if (empty($_SESSION['csrf_token'])) {
 $errors = [];
 $success = "";
 
-// เชื่อมต่อฐานข้อมูล (MySQLi)
-$mysqli = @new mysqli($db_host, $db_user, $db_pass, $db_name);
-if ($mysqli->connect_errno) {
-  die("เชื่อมต่อฐานข้อมูลล้มเหลว: " . $mysqli->connect_error);
-}
-$mysqli->set_charset("utf8mb4");
-
-// ฟังก์ชันเล็ก ๆ กัน XSS เวลา echo ค่าเดิมกลับฟอร์ม
-function e($str){ return htmlspecialchars($str ?? "", ENT_QUOTES, "UTF-8"); }
-
+// ===== เมื่อกด Submit =====
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-  // ตรวจ CSRF token
+  // ตรวจ CSRF
   if (empty($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
     $errors[] = "CSRF token ไม่ถูกต้อง กรุณารีเฟรชหน้าแล้วลองอีกครั้ง";
   }
@@ -46,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $email     = trim($_POST['email'] ?? "");
   $full_name = trim($_POST['name'] ?? "");
 
-  // ตรวจความถูกต้องเบื้องต้น
+  // ตรวจสอบความถูกต้อง
   if ($username === "" || !preg_match('/^[A-Za-z0-9_\.]{3,30}$/', $username)) {
     $errors[] = "กรุณากรอก username 3–30 ตัวอักษร (a-z, A-Z, 0-9, _, .)";
   }
@@ -60,47 +54,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $errors[] = "กรุณากรอกชื่อ–นามสกุล (ไม่เกิน 100 ตัวอักษร)";
   }
 
-  // ตรวจซ้ำ username/email
+  // ตรวจ username/email ซ้ำ
   if (!$errors) {
     $sql = "SELECT 1 FROM users WHERE username = ? OR email = ? LIMIT 1";
-    if ($stmt = $mysqli->prepare($sql)) {
-      $stmt->bind_param("ss", $username, $email);
-      $stmt->execute();
-      $stmt->store_result();
-      if ($stmt->num_rows > 0) {
-        $errors[] = "Username หรือ Email นี้ถูกใช้แล้ว";
-      }
-      $stmt->close();
-    } else {
-      $errors[] = "เกิดข้อผิดพลาดในการตรวจสอบข้อมูล (prepare)";
+    $stmt = $mysqli->prepare($sql);
+    $stmt->bind_param("ss", $username, $email);
+    $stmt->execute();
+    $stmt->store_result();
+    if ($stmt->num_rows > 0) {
+      $errors[] = "Username หรือ Email นี้ถูกใช้แล้ว";
     }
+    $stmt->close();
   }
 
-  // บันทึกลงฐานข้อมูล
+  // บันทึกข้อมูล
   if (!$errors) {
     $password_hash = password_hash($password, PASSWORD_DEFAULT);
-
-    $sql = "INSERT INTO users (username, email, password_hash, full_name) VALUES (?, ?, ?, ?)";
-    if ($stmt = $mysqli->prepare($sql)) {
-      $stmt->bind_param("ssss", $username, $email, $password_hash, $full_name);
-      if ($stmt->execute()) {
-        $success = "สมัครสมาชิกสำเร็จ! คุณสามารถล็อกอินได้แล้วค่ะ";
-        // regenerate CSRF token หลังสำเร็จ
-        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-        // เคลียร์ฟอร์ม
-        $username = $email = $full_name = "";
-      } else {
-        // ตรวจจับ duplicate เฉพาะทาง
-        if ($mysqli->errno == 1062) {
-          $errors[] = "Username/Email ซ้ำ กรุณาใช้ค่าอื่น";
-        } else {
-          $errors[] = "บันทึกข้อมูลไม่สำเร็จ: " . e($mysqli->error);
-        }
-      }
-      $stmt->close();
+    $sql = "INSERT INTO users (username, email, password, full_name) VALUES (?, ?, ?, ?)";
+    $stmt = $mysqli->prepare($sql);
+    $stmt->bind_param("ssss", $username, $email, $password_hash, $full_name);
+    if ($stmt->execute()) {
+      $success = "สมัครสมาชิกสำเร็จ! คุณสามารถล็อกอินได้แล้วค่ะ";
+      $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+      $username = $email = $full_name = "";
     } else {
-      $errors[] = "เกิดข้อผิดพลาดในการบันทึกข้อมูล (prepare)";
+      $errors[] = "บันทึกข้อมูลไม่สำเร็จ: " . e($mysqli->error);
     }
+    $stmt->close();
   }
 }
 ?>
@@ -111,17 +91,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Register</title>
   <style>
-    body{font-family:system-ui, sans-serif; background:#f7f7fb; margin:0; padding:0;}
-    .container{max-width:480px; margin:40px auto; background:#fff; border-radius:16px; padding:24px; box-shadow:0 10px 30px rgba(0,0,0,.06);}
+    body{font-family:system-ui,sans-serif;background:#f7f7fb;margin:0;padding:0;}
+    .container{max-width:480px;margin:40px auto;background:#fff;border-radius:16px;padding:24px;
+    box-shadow:0 10px 30px rgba(0,0,0,.06);}
     h1{margin:0 0 16px;}
-    .alert{padding:12px 14px; border-radius:12px; margin-bottom:12px; font-size:14px;}
-    .alert.error{background:#ffecec; color:#a40000; border:1px solid #ffc9c9;}
-    .alert.success{background:#efffed; color:#0a7a28; border:1px solid #c9f5cf;}
-    label{display:block; font-size:14px; margin:10px 0 6px;}
-    input{width:100%; padding:12px; border-radius:12px; border:1px solid #ddd;}
-    button{width:100%; padding:12px; border:none; border-radius:12px; margin-top:14px; background:#3b82f6; color:#fff; font-weight:600; cursor:pointer;}
+    .alert{padding:12px 14px;border-radius:12px;margin-bottom:12px;font-size:14px;}
+    .alert.error{background:#ffecec;color:#a40000;border:1px solid #ffc9c9;}
+    .alert.success{background:#efffed;color:#0a7a28;border:1px solid #c9f5cf;}
+    label{display:block;font-size:14px;margin:10px 0 6px;}
+    input{width:100%;padding:12px;border-radius:12px;border:1px solid #ddd;}
+    button{width:100%;padding:12px;border:none;border-radius:12px;margin-top:14px;background:#3b82f6;
+    color:#fff;font-weight:600;cursor:pointer;}
     button:hover{filter:brightness(.95);}
-    .hint{font-size:12px; color:#666;}
+    .hint{font-size:12px;color:#666;}
   </style>
 </head>
 <body>

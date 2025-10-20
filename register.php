@@ -70,9 +70,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   // บันทึกข้อมูล
   if (!$errors) {
     $password_hash = password_hash($password, PASSWORD_DEFAULT);
-    $sql = "INSERT INTO users (username, email, password, full_name) VALUES (?, ?, ?, ?)";
+    $sql = "INSERT INTO users (username, email, password_hash, display_name) VALUES (?, ?, ?, ?)";
     $stmt = $mysqli->prepare($sql);
-    $stmt->bind_param("ssss", $username, $email, $password_hash, $full_name);
+    $stmt->bind_param("ssss", $username, $email, $password_hash, $display_name);
     if ($stmt->execute()) {
       $success = "สมัครสมาชิกสำเร็จ! คุณสามารถล็อกอินได้แล้วค่ะ";
       $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
